@@ -6,6 +6,7 @@ const GeminiService = require('./gemini-service');
 const CloudflareService = require('./cloudflare-service');
 const HuggingFaceService = require('./huggingface-service');
 const GitlabService = require('./gitlab-service');
+const NotionService = require('./notion-service');
 require('dotenv').config();
 
 const app = express();
@@ -44,6 +45,14 @@ try {
   gitlabService = new GitlabService();
 } catch (error) {
   console.warn('GitLab service not initialized:', error.message);
+}
+
+// Initialize Notion service
+let notionService;
+try {
+  notionService = new NotionService();
+} catch (error) {
+  console.warn('Notion service not initialized:', error.message);
 }
 
 app.use(cors());
@@ -1364,6 +1373,234 @@ app.post('/google-docs/:documentId/update', async (req, res) => {
   }
 });
 
+// Notion OAuth & API endpoints
+
+// Step 1: Redirect to Notion authorization page
+app.get('/notion/auth', (req, res) => {
+  if (!notionService) {
+    return res.status(503).json({ error: 'Notion service is not available. Please set NOTION_OAUTH_CLIENT_ID and NOTION_OAUTH_CLIENT_SECRET.' });
+  }
+  const { state } = req.query;
+  const url = notionService.getAuthorizationUrl(state);
+  res.redirect(url);
+});
+
+// Step 2: OAuth callback — exchange code for access token
+app.get('/notion/callback', async (req, res) => {
+  if (!notionService) {
+    return res.status(503).json({ error: 'Notion service is not available.' });
+  }
+  const { code, error } = req.query;
+  if (error) {
+    return res.status(400).json({ error: `Notion authorization denied: ${error}` });
+  }
+  if (!code) {
+    return res.status(400).json({ error: 'Missing authorization code' });
+  }
+  try {
+    const tokenData = await notionService.exchangeCodeForToken(code);
+    res.json({
+      success: true,
+      access_token: tokenData.access_token,
+      workspace_id: tokenData.workspace_id,
+      workspace_name: tokenData.workspace_name,
+      bot_id: tokenData.bot_id,
+      owner: tokenData.owner,
+    });
+  } catch (err) {
+    console.error('Error exchanging Notion OAuth code:', err.response?.data || err.message);
+    res.status(500).json({ error: err.response?.data?.message || err.message });
+  }
+});
+
+// Search pages and databases
+app.post('/notion/search', async (req, res) => {
+  if (!notionService) {
+    return res.status(503).json({ error: 'Notion service is not available.' });
+  }
+  const { access_token, query = '', filter } = req.body;
+  if (!access_token) {
+    return res.status(400).json({ error: 'access_token is required' });
+  }
+  try {
+    const results = await notionService.search(access_token, query, filter);
+    res.json({ success: true, ...results });
+  } catch (err) {
+    console.error('Notion search error:', err.response?.data || err.message);
+    res.status(500).json({ error: err.response?.data?.message || err.message });
+  }
+});
+
+// Get a page
+app.get('/notion/pages/:pageId', async (req, res) => {
+  if (!notionService) {
+    return res.status(503).json({ error: 'Notion service is not available.' });
+  }
+  const { access_token } = req.headers;
+  if (!access_token) {
+    return res.status(400).json({ error: 'access_token header is required' });
+  }
+  try {
+    const page = await notionService.getPage(access_token, req.params.pageId);
+    res.json({ success: true, page });
+  } catch (err) {
+    console.error('Notion get page error:', err.response?.data || err.message);
+    res.status(err.response?.status || 500).json({ error: err.response?.data?.message || err.message });
+  }
+});
+
+// Get page blocks (children)
+app.get('/notion/blocks/:blockId/children', async (req, res) => {
+  if (!notionService) {
+    return res.status(503).json({ error: 'Notion service is not available.' });
+  }
+  const { access_token } = req.headers;
+  if (!access_token) {
+    return res.status(400).json({ error: 'access_token header is required' });
+  }
+  try {
+    const blocks = await notionService.getPageBlocks(access_token, req.params.blockId);
+    res.json({ success: true, ...blocks });
+  } catch (err) {
+    console.error('Notion get blocks error:', err.response?.data || err.message);
+    res.status(err.response?.status || 500).json({ error: err.response?.data?.message || err.message });
+  }
+});
+
+// Append block children
+app.patch('/notion/blocks/:blockId/children', async (req, res) => {
+  if (!notionService) {
+    return res.status(503).json({ error: 'Notion service is not available.' });
+  }
+  const { access_token } = req.headers;
+  const { children } = req.body;
+  if (!access_token) {
+    return res.status(400).json({ error: 'access_token header is required' });
+  }
+  if (!children || !Array.isArray(children)) {
+    return res.status(400).json({ error: 'children array is required' });
+  }
+  try {
+    const result = await notionService.appendBlockChildren(access_token, req.params.blockId, children);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('Notion append blocks error:', err.response?.data || err.message);
+    res.status(err.response?.status || 500).json({ error: err.response?.data?.message || err.message });
+  }
+});
+
+// Create a page
+app.post('/notion/pages', async (req, res) => {
+  if (!notionService) {
+    return res.status(503).json({ error: 'Notion service is not available.' });
+  }
+  const { access_token, parent_id, parent_type = 'page', title, properties, children } = req.body;
+  if (!access_token || !parent_id || !title) {
+    return res.status(400).json({ error: 'access_token, parent_id, and title are required' });
+  }
+  try {
+    const page = await notionService.createPage(access_token, parent_id, parent_type, title, properties, children);
+    res.json({ success: true, page });
+  } catch (err) {
+    console.error('Notion create page error:', err.response?.data || err.message);
+    res.status(err.response?.status || 500).json({ error: err.response?.data?.message || err.message });
+  }
+});
+
+// Update a page's properties
+app.patch('/notion/pages/:pageId', async (req, res) => {
+  if (!notionService) {
+    return res.status(503).json({ error: 'Notion service is not available.' });
+  }
+  const { access_token } = req.headers;
+  const { properties } = req.body;
+  if (!access_token) {
+    return res.status(400).json({ error: 'access_token header is required' });
+  }
+  if (!properties) {
+    return res.status(400).json({ error: 'properties are required' });
+  }
+  try {
+    const page = await notionService.updatePage(access_token, req.params.pageId, properties);
+    res.json({ success: true, page });
+  } catch (err) {
+    console.error('Notion update page error:', err.response?.data || err.message);
+    res.status(err.response?.status || 500).json({ error: err.response?.data?.message || err.message });
+  }
+});
+
+// Archive (delete) a page
+app.delete('/notion/pages/:pageId', async (req, res) => {
+  if (!notionService) {
+    return res.status(503).json({ error: 'Notion service is not available.' });
+  }
+  const { access_token } = req.headers;
+  if (!access_token) {
+    return res.status(400).json({ error: 'access_token header is required' });
+  }
+  try {
+    const page = await notionService.archivePage(access_token, req.params.pageId);
+    res.json({ success: true, page });
+  } catch (err) {
+    console.error('Notion archive page error:', err.response?.data || err.message);
+    res.status(err.response?.status || 500).json({ error: err.response?.data?.message || err.message });
+  }
+});
+
+// Get a database
+app.get('/notion/databases/:databaseId', async (req, res) => {
+  if (!notionService) {
+    return res.status(503).json({ error: 'Notion service is not available.' });
+  }
+  const { access_token } = req.headers;
+  if (!access_token) {
+    return res.status(400).json({ error: 'access_token header is required' });
+  }
+  try {
+    const database = await notionService.getDatabase(access_token, req.params.databaseId);
+    res.json({ success: true, database });
+  } catch (err) {
+    console.error('Notion get database error:', err.response?.data || err.message);
+    res.status(err.response?.status || 500).json({ error: err.response?.data?.message || err.message });
+  }
+});
+
+// Query a database
+app.post('/notion/databases/:databaseId/query', async (req, res) => {
+  if (!notionService) {
+    return res.status(503).json({ error: 'Notion service is not available.' });
+  }
+  const { access_token, filter, sorts, start_cursor, page_size } = req.body;
+  if (!access_token) {
+    return res.status(400).json({ error: 'access_token is required' });
+  }
+  try {
+    const results = await notionService.queryDatabase(access_token, req.params.databaseId, filter, sorts, start_cursor, page_size);
+    res.json({ success: true, ...results });
+  } catch (err) {
+    console.error('Notion query database error:', err.response?.data || err.message);
+    res.status(err.response?.status || 500).json({ error: err.response?.data?.message || err.message });
+  }
+});
+
+// List workspace users
+app.get('/notion/users', async (req, res) => {
+  if (!notionService) {
+    return res.status(503).json({ error: 'Notion service is not available.' });
+  }
+  const { access_token } = req.headers;
+  if (!access_token) {
+    return res.status(400).json({ error: 'access_token header is required' });
+  }
+  try {
+    const users = await notionService.getUsers(access_token);
+    res.json({ success: true, ...users });
+  } catch (err) {
+    console.error('Notion get users error:', err.response?.data || err.message);
+    res.status(err.response?.status || 500).json({ error: err.response?.data?.message || err.message });
+  }
+});
+
 // Get agents list
 app.get('/taskade-tower/agents', authenticateRequest, async (req, res) => {
   try {
@@ -1512,6 +1749,11 @@ app.get('/gitlab-test', (req, res) => {
   res.sendFile(__dirname + '/gitlab-test.html');
 });
 
+// Serve Notion test interface
+app.get('/notion-test', (req, res) => {
+  res.sendFile(__dirname + '/notion-test.html');
+});
+
 // Serve the main test interface
 app.get('/test', (req, res) => {
   res.sendFile(__dirname + '/test-client.html');
@@ -1520,7 +1762,7 @@ app.get('/test', (req, res) => {
 // Root route
 app.get('/', (req, res) => {
   res.json({
-    message: 'Taskade, Google Docs, Gemini AI, Cloudflare, Hugging Face & GitLab Integration API',
+    message: 'Taskade, Google Docs, Gemini AI, Cloudflare, Hugging Face, GitLab & Notion Integration API',
     endpoints: {
       taskade: '/taskade-tower/health',
       googleDocs: '/google-docs-test',
@@ -1528,6 +1770,7 @@ app.get('/', (req, res) => {
       cloudflare: '/cloudflare-test',
       huggingface: '/huggingface-test',
       gitlab: '/gitlab-test',
+      notion: '/notion-test',
       test: '/test'
     },
     services: {
@@ -1536,6 +1779,7 @@ app.get('/', (req, res) => {
       cloudflareAvailable: !!cloudflareService,
       huggingFaceAvailable: !!huggingFaceService,
       gitlabAvailable: !!gitlabService,
+      notionAvailable: !!notionService,
       taskadeKeyConfigured: !!process.env.TASKADE_API_KEY
     }
   });
