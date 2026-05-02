@@ -1,0 +1,14 @@
+# Cloudflare Tunnel config for Taskade-Tower
+# Replace TUNNEL_ID below with the UUID printed after `cloudflared tunnel create taskade-tower`
+tunnel: taskade-tower
+credentials-file: /Users/cybersoulja/.cloudflared/<TUNNEL_ID>.json
+
+ingress:
+  # Root domain → local server
+  - hostname: oneseco.xyz
+    service: http://localhost:3000
+  # www subdomain → same local server
+  - hostname: www.oneseco.xyz
+    service: http://localhost:3000
+  # Catch-all required by cloudflared
+  - service: http_status:404
