@@ -5,10 +5,10 @@ credentials-file: /Users/cybersoulja/.cloudflared/<TUNNEL_ID>.json
 
 ingress:
   # Root domain → local server
-  - hostname: oneseco.xyz
+  - hostname: oneseco.com
     service: http://localhost:3000
   # www subdomain → same local server
-  - hostname: www.oneseco.xyz
+  - hostname: www.oneseco.com
     service: http://localhost:3000
   # Catch-all required by cloudflared
   - service: http_status:404

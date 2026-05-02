@@ -8,7 +8,7 @@ class NotionService {
   constructor() {
     this.clientId = process.env.NOTION_OAUTH_CLIENT_ID;
     this.clientSecret = process.env.NOTION_OAUTH_CLIENT_SECRET;
-    this.redirectUri = process.env.NOTION_REDIRECT_URI || 'https://oneseco.xyz';
+    this.redirectUri = process.env.NOTION_REDIRECT_URI || 'https://oneseco.com';
 
     if (!this.clientId || !this.clientSecret) {
       throw new Error('NOTION_OAUTH_CLIENT_ID and NOTION_OAUTH_CLIENT_SECRET environment variables are required');

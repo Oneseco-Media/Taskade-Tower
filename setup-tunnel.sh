@@ -6,7 +6,7 @@
 set -euo pipefail
 
 TUNNEL_NAME="taskade-tower"
-DOMAIN="oneseco.xyz"
+DOMAIN="oneseco.com"
 LOCAL_PORT=3000
 CLOUDFLARED_CONFIG="$HOME/.cloudflared/config.yml"
 PLIST_PATH="$HOME/Library/LaunchAgents/com.taskade-tower.tunnel.plist"
@@ -105,6 +105,7 @@ echo "Next steps:"
 echo "  1. Start the server:  cd $(pwd) && npm install && node index.js"
 echo "  2. Set env vars in your shell or .env file (see .env.example)"
 echo "  3. Visit https://$DOMAIN/notion-test to test Notion OAuth"
+echo "  NOTE: Update the Notion OAuth app redirect URI to https://$DOMAIN"
 echo ""
 echo "To stop the tunnel:  launchctl unload $PLIST_PATH"
 echo "To view logs:        tail -f ~/.cloudflared/tunnel.log"
