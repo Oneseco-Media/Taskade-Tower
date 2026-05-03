@@ -131,3 +131,6 @@ dist
 
 # Replit debugger
 .breakpoints
+
+# Cloudflare Tunnel credentials (never commit these)
+.cloudflared/*.json
